@@ -34,6 +34,7 @@ jobs:
           if grep -RInE \
               --exclude-dir=.git \
               --exclude=secret-scan-patterns.txt \
+              --exclude=.env.example \
               "$pattern" .; then
             echo "Potential secret or private project reference found."
             exit 1

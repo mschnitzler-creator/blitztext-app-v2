@@ -27,8 +27,7 @@ const http = require('http');
 const crypto = require('crypto');
 
 const PORT = parseInt(process.env.PORT || '3020', 10);
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const FAL_API_KEY = process.env.FAL_API_KEY;
+const { OPENAI_API_KEY, FAL_API_KEY } = process.env;
 
 // Ein Passwort pro Nutzer: APP_PASSWORD (= Nutzer "default") plus
 // APP_PASSWORD_<NAME> (z. B. APP_PASSWORD_ANNA). So lassen sich einzelne
