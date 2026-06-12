@@ -134,12 +134,21 @@ cp -f "$PROJECT_DIR/Resources/AppIcon.icns" "$RESOURCES_DIR/" 2>/dev/null || tru
 cp -f "$PROJECT_DIR/Resources/menubar_icon.png" "$RESOURCES_DIR/" 2>/dev/null || true
 cp -f "$PROJECT_DIR/Resources/menubar_icon@2x.png" "$RESOURCES_DIR/" 2>/dev/null || true
 
+# Feste Signatur wenn vorhanden: TCC-Freigaben (Bedienungshilfen, Bildschirmaufnahme)
+# ueberleben dann App-Updates. Sonst ad-hoc wie im Original.
+# Eigene Identitaet ueber Umgebungsvariable waehlbar, z.B.:
+#   BLITZTEXT_SIGN_IDENTITY="Mein Zertifikat" ./build.sh --install
+SIGN_IDENTITY="-"
+if [ -n "${BLITZTEXT_SIGN_IDENTITY:-}" ] && security find-identity -v -p codesigning 2>/dev/null | grep -q "$BLITZTEXT_SIGN_IDENTITY"; then
+    SIGN_IDENTITY="$BLITZTEXT_SIGN_IDENTITY"
+fi
+
 # In Projektordner kopieren
 DEST="$SCRIPT_DIR/Blitztext.app"
 rm -rf "$DEST"
 cp -R "$APP_PATH" "$DEST"
-echo "🔏 Signiere lokale Development-App ad-hoc. Dieses Artefakt ist nicht notarisiert."
-codesign --force --sign - "$DEST" 2>&1
+echo "🔏 Signiere mit Identitaet: $SIGN_IDENTITY (nicht notarisiert)."
+codesign --force --deep --sign "$SIGN_IDENTITY" "$DEST" 2>&1
 verify_universal_app "$DEST"
 
 RUN_TARGET="$DEST"
@@ -154,8 +163,8 @@ if [ "$INSTALL_APP" = true ]; then
     fi
     rm -rf "$INSTALL_DEST"
     cp -R "$DEST" "$INSTALL_DEST"
-    echo "🔏 Signiere lokale Development-App ad-hoc. Dieses Artefakt ist nicht notarisiert."
-    codesign --force --sign - "$INSTALL_DEST" 2>&1
+    echo "🔏 Signiere mit Identitaet: $SIGN_IDENTITY (nicht notarisiert)."
+    codesign --force --deep --sign "$SIGN_IDENTITY" "$INSTALL_DEST" 2>&1
     verify_universal_app "$INSTALL_DEST"
     RUN_TARGET="$INSTALL_DEST"
 fi

@@ -13,6 +13,10 @@ enum AppSupportPaths {
         appSupportDirectoryURL.appendingPathComponent("settings.json")
     }
 
+    static var historyURL: URL {
+        appSupportDirectoryURL.appendingPathComponent("history.json")
+    }
+
     static var localModelsDirectoryURL: URL {
         appSupportDirectoryURL.appendingPathComponent("models", isDirectory: true)
     }

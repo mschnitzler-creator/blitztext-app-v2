@@ -1,157 +1,90 @@
-# Blitztext App
+# Blitztext App – Extended Fork
 
-Blitztext App is an experimental open-source macOS menubar app for turning speech into text.
+This is a fork of [Blitztext App](https://github.com/cmagnussen/blitztext-app), the open-source macOS dictation menubar app. We took the original invitation to "use, fork, adapt and share" seriously: this fork is in daily production use at a German mortgage brokerage and grew from a dictation tool into a full dictation + meeting-transcription workflow.
 
-It is intentionally small and unfinished. The goal is to make a real workflow visible and hackable: press a hotkey, speak, get text back, optionally rewrite it, and paste it into the app you were using.
+All credit for the foundation, the app concept and the original codebase goes to the upstream project. License stays MIT.
 
-This is a learning and experimentation project, not a polished product.
+## What this fork adds
 
-> Preview status: bring your own OpenAI API key, no hosted backend, no warranty, no support guarantee.
+### History window
+- Every dictation and meeting transcript is kept locally (`history.json`, max 1000 entries), searchable, copyable.
+- Two tabs: **Diktate | Meetings**. Meeting entries show date, duration, participants, summary, and a collapsible transcript.
+- Inline renaming of meeting titles and speakers (the transcript re-renders live).
 
-## What It Does
+### Meeting mode
+- Records **microphone + system audio** (ScreenCaptureKit), so it works with headphones in Zoom/Teams/Webex/Google Meet.
+- Transcription after the meeting (no live streaming), selectable per recording:
+  - **Cloud**: ElevenLabs **Scribe v2** with speaker diarization ("Anna: … / Speaker 2: …"), routed through the optional self-hosted server (below).
+  - **Local**: WhisperKit on-device, no audio leaves the Mac (no speaker labels).
+- Auto-generated title + bullet summary via LLM after transcription.
+- Manual participants can be added when diarization merges voices (e.g. phone on speaker).
+- Optional **second-brain export**: each meeting as a Markdown file with frontmatter into a folder of your choice (works great with Obsidian).
 
-- **Blitztext**: record speech and transcribe it.
-- **Blitztext+**: record speech, transcribe it, then turn the rough draft into cleaner writing.
-- **Blitztext $%&!**: turn frustrated speech into a calmer message.
-- **Blitztext :)**: add fitting emojis to dictated text.
+### Meeting detection
+- Detects running meetings two ways: meeting-app launch (Zoom/Teams/Webex) plus a microphone-activity signal (CoreAudio, 5 s polling), and Google Meet via browser window titles.
+- Shows a floating prompt banner ("Zoom-Meeting erkannt – aufzeichnen?") instead of a macOS notification, so no notification permission is needed. 60 s dedupe; the app's own recordings never trigger it.
 
-## Important Preview Notes
+### Dictation improvements
+- **F13 dictation key** via CGEvent tap: one physical key starts/stops dictation system-wide; the keypress is swallowed so it doesn't type anything.
+- Recording overlay at the bottom of the screen with level meter and timer, plus an optional short start sound.
+- Long dictations no longer die on timeouts (120 s request / 900 s resource); failed recordings are rescued to a `gerettete-aufnahmen` folder instead of being lost.
+- First-word-swallowed bug fixed (`prepareToRecord()` before `record()`).
+- **E-mail tone** as a fourth mode in the text improver: formats the dictation as a ready-to-send mail, keeps Du/Sie exactly as dictated, invents nothing.
 
-- macOS only.
-- Bring your own OpenAI API key.
-- No hosted Blitztext backend is included or provided.
-- In online mode, audio and text are sent directly from the app to the OpenAI API.
-- Optional local transcription via WhisperKit/CoreML if you install a compatible model locally.
-- `./build.sh` creates a locally ad-hoc-signed development app. No notarized release binary is provided.
-- Not production ready.
-- No warranty and no support guarantee.
+### Optional self-hosted server (`server/`)
+A zero-dependency Node.js proxy (one file, systemd unit included) that solves two things:
 
-You are welcome to use, fork, adapt, and share this project under the license terms.
+1. **Key protection for teams**: the real OpenAI key lives only on the server. Each user gets an app password (`APP_PASSWORD_<NAME>` env vars), enters it in the app instead of an API key, and can be revoked individually. The log shows per-user usage, never content.
+2. **Meeting route**: `/v1/meeting/transcriptions` accepts the finished m4a, submits it to fal.ai's Scribe v2 queue, polls until done and returns speaker-labeled words. The app sees one long POST.
 
-The intent is not to ship a one-click finished app. The intent is to make a real AI workflow understandable: clone it, build it, read the code, change it, break it, fix it, and suggest improvements. If you only want to download something and never look inside, this preview will probably feel rough. If you want to learn how a small native macOS AI app is put together, you are in the right place.
+The app works without it: leave the new **Server (optional)** field in the settings empty and the app talks directly to the OpenAI API with your own key, exactly like upstream. Cloud meeting transcription requires the server; local WhisperKit meetings work either way.
 
-## Screenshots
+## Build and run
 
-<table>
-  <tr>
-    <td><img src="docs/screenshots/online-mode.png" alt="Blitztext online transcription mode" width="420"></td>
-    <td><img src="docs/screenshots/local-mode.png" alt="Blitztext secure local transcription mode" width="420"></td>
-  </tr>
-  <tr>
-    <td><img src="docs/screenshots/local-model-picker.png" alt="Blitztext local model picker" width="420"></td>
-    <td><img src="docs/screenshots/settings-customize.png" alt="Blitztext settings and customization view" width="420"></td>
-  </tr>
-</table>
-
-## Requirements
-
-- macOS 14 or newer
-- Xcode 16 or newer (Swift 5.10), with Command Line Tools installed and selected for `xcodebuild`
-- [XcodeGen](https://github.com/yonaskolb/XcodeGen) to generate the Xcode project
-- For online transcription and rewriting: an OpenAI API key with access to:
-  - `whisper-1` for transcription
-  - `gpt-4o-mini` and optionally `gpt-4o` for rewriting
-- For local-only transcription: a WhisperKit CoreML model in:
-  `~/Library/Application Support/Blitztext/models/whisperkit/`
-
-The build also pulls one Swift Package dependency automatically:
-
-- [`argmax-oss-swift`](https://github.com/argmaxinc/argmax-oss-swift) (WhisperKit) — used for local on-device transcription.
-
-Install XcodeGen if needed:
+Same as upstream:
 
 ```bash
 brew install xcodegen
-```
-
-## Build And Run
-
-```bash
-git clone https://github.com/cmagnussen/blitztext-app.git
-cd blitztext-app
-./build.sh --run
-```
-
-For a local install into `/Applications`:
-
-```bash
 ./build.sh --install --run
 ```
 
-The generated `.app` is ad-hoc signed for local development only. Do not treat it as a trusted redistributable binary. A public binary release would need Developer ID signing and notarization.
+Optional fixed code-signing identity, so macOS TCC grants (Accessibility, Screen Recording) survive rebuilds:
 
-On first launch, either paste your own OpenAI API key for online workflows or install a WhisperKit CoreML model for local transcription. Rewriting workflows still require OpenAI.
-
-For fully local transcription, install a WhisperKit CoreML model and enable **Sicherer Lokaler Modus** in the app.
-
-For a slower, more explicit walkthrough, see [docs/setup.md](docs/setup.md).
-
-## Permissions
-
-Blitztext asks for:
-
-- **Microphone**: to record your voice.
-- **Accessibility**: to paste the result back into the app you were using.
-
-If you do not grant Accessibility permission, you can still copy results manually.
-
-Full Disk Access is not required. If auto-paste does not work even though transcription succeeds, open **System Settings -> Privacy & Security -> Accessibility**, enable Blitztext there, restart Blitztext, and try again with the cursor focused in a text field. If macOS shows multiple Blitztext entries, remove or disable the old ones and grant the permission to the app you just built or installed.
-
-## Data Flow
-
-The preview has no custom backend.
-
-```text
-Online transcription: Your Mac -> OpenAI Audio Transcriptions API
-Text rewriting:       Your Mac -> OpenAI Chat Completions API
-Local transcription:  Your Mac -> WhisperKit/CoreML on device
+```bash
+BLITZTEXT_SIGN_IDENTITY="My Dev Cert" ./build.sh --install
 ```
 
-The app stores your OpenAI API key in the user's macOS Keychain.
+Permissions: Microphone and Accessibility as upstream; **Screen Recording** additionally for meeting mode and Google Meet detection.
 
-Read [docs/privacy.md](docs/privacy.md) before using the preview with sensitive content.
+Server setup: copy `server/` to a host, create `.env` from `.env.example` (`OPENAI_API_KEY`, `APP_PASSWORD…`, optional `FAL_API_KEY` for meeting diarization), run it via the included systemd unit behind any HTTPS reverse proxy, and put the base URL into the app's server field.
 
-## Project Structure
+## Tests
 
-```text
-BlitztextMac/
-  App/          App lifecycle and paste handling
-  Features/     Workflows, menu bar UI, settings
-  Services/     Recording, OpenAI calls, hotkeys, local storage
-  Views/        Shared SwiftUI views
-build.sh        Local build script
-docs/           Setup, privacy, roadmap, preflight, landing page notes
+```bash
+cd BlitztextMac
+xcodebuild -project BlitztextMac.xcodeproj -scheme BlitztextMac -destination 'platform=macOS' ONLY_ACTIVE_ARCH=YES test
 ```
 
-## Local Models
+61 unit tests cover the transcript store, speaker segmentation and rendering, meeting detection, recorder mixing and the second-brain exporter.
 
-Local transcription is available as an experimental WhisperKit/CoreML path. The app does not bundle a model; choose one in the app, click install, and then switch on **Sicherer Lokaler Modus** from the menu bar or settings.
+## Practical numbers from daily use
 
-See [docs/local-models.md](docs/local-models.md).
+- Dictation: ~0.6 ct per minute (Whisper via OpenAI).
+- Meetings: ~0.22 $ per hour (Scribe v2 via fal.ai), recordings up to ~2 h (data-URI upload limit).
+- Multiple users on one server with individual passwords; transcripts stay on each user's Mac.
 
-## Contributing
+## Data flow
 
-Contributions are welcome, especially if they make the preview easier to build, understand, or fork.
+```text
+Dictation (direct mode):  Your Mac -> OpenAI API (your key, as upstream)
+Dictation (server mode):  Your Mac -> your server -> OpenAI API (key stays on server)
+Meeting cloud:            Your Mac -> your server -> fal.ai (ElevenLabs Scribe v2)
+Meeting local:            Your Mac -> WhisperKit/CoreML on device
+History:                  local JSON on your Mac, nothing leaves the machine
+```
 
-Please read [CONTRIBUTING.md](CONTRIBUTING.md) first.
+## Upstream documentation, license, credits
 
-## Support And Roadmap
+Setup walkthrough, privacy notes, local models, contributing, trademarks and legal: see the original repo [cmagnussen/blitztext-app](https://github.com/cmagnussen/blitztext-app) and the `docs/` folder. The name "Blitztext" belongs to the upstream project (see [TRADEMARKS.md](TRADEMARKS.md)); this fork exists as a thank-you and feedback, not as a competing product.
 
-This preview has no formal support promise. See [SUPPORT.md](SUPPORT.md) for how to ask for help without sharing secrets.
-
-The current direction is documented in [ROADMAP.md](ROADMAP.md). Maintainer-facing release checks live in [docs/open-source-preflight.md](docs/open-source-preflight.md).
-
-## License
-
-Code is released under the MIT License. See [LICENSE](LICENSE).
-
-Project names, logos, and app icons are not automatically granted as trademarks or brand assets. See [TRADEMARKS.md](TRADEMARKS.md).
-
-## Legal / Impressum & Datenschutz
-
-This is an experimental, non-commercial open-source project, provided as-is under the MIT License without warranty or support. Nothing is sold here and no installation or operation is performed on your behalf.
-
-The companion website (blitztext.de) is operated by Blackboat Internet GmbH:
-
-- Impressum: https://www.blackboat.com/impressum
-- Datenschutz / Privacy: https://www.blackboat.com/datenschutz
+License: MIT, unchanged from upstream (see [LICENSE](LICENSE)). Same disclaimer applies: experimental, no warranty, no support guarantee.

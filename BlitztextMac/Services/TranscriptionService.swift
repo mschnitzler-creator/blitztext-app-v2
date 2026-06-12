@@ -30,14 +30,16 @@ private struct TranscriptionOpenAIErrorResponse: Decodable {
 
 enum TranscriptionService {
     private static let remoteModel = "whisper-1"
-    private static let transcriptionsURL = URL(string: "https://api.openai.com/v1/audio/transcriptions")!
+    private static var transcriptionsURL: URL { ServerConfig.transcriptionsURL }
 
     private static let session: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.waitsForConnectivity = false
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-        configuration.timeoutIntervalForRequest = 60
-        configuration.timeoutIntervalForResource = 60
+        // Lange Diktate: Upload + Whisper-Verarbeitung können mehrere Minuten dauern.
+        // 60s-Gesamtlimit hat lange Aufnahmen hart abgebrochen (Transkript weg).
+        configuration.timeoutIntervalForRequest = 120
+        configuration.timeoutIntervalForResource = 900
         return URLSession(configuration: configuration)
     }()
 
@@ -61,7 +63,7 @@ enum TranscriptionService {
             request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
             request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
             request.setValue("text/plain, application/json", forHTTPHeaderField: "Accept")
-            request.timeoutInterval = 60
+            request.timeoutInterval = 120
             request.cachePolicy = .reloadIgnoringLocalCacheData
 
             let audioData = try Data(contentsOf: audioURL, options: [.mappedIfSafe])

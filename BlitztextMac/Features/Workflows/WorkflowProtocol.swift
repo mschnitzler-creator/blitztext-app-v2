@@ -122,19 +122,40 @@ struct AppSettings: Codable {
     var secureLocalModeEnabled: Bool = false
     var selectedLocalTranscriptionModelName: String = LocalTranscriptionService.recommendedFastModelName
     var hasAutoSelectedFastLocalModel: Bool = false
+    var f13DictationEnabled: Bool = false
+    var showRecordingOverlay: Bool = true
+    var meetingMode: MeetingMode = .cloud
+    var meetingDetectionEnabled: Bool = true
+    var secondBrainExportEnabled: Bool = false
+    var secondBrainFolderPath: String = ""
+    var playRecordingSound: Bool = true
 
     init(
         hotkeyMode: HotkeyMode = .hold,
         hasSeenOnboarding: Bool = false,
         secureLocalModeEnabled: Bool = false,
         selectedLocalTranscriptionModelName: String = LocalTranscriptionService.recommendedFastModelName,
-        hasAutoSelectedFastLocalModel: Bool = false
+        hasAutoSelectedFastLocalModel: Bool = false,
+        f13DictationEnabled: Bool = false,
+        showRecordingOverlay: Bool = true,
+        meetingMode: MeetingMode = .cloud,
+        meetingDetectionEnabled: Bool = true,
+        secondBrainExportEnabled: Bool = false,
+        secondBrainFolderPath: String = "",
+        playRecordingSound: Bool = true
     ) {
         self.hotkeyMode = hotkeyMode
         self.hasSeenOnboarding = hasSeenOnboarding
         self.secureLocalModeEnabled = secureLocalModeEnabled
         self.selectedLocalTranscriptionModelName = selectedLocalTranscriptionModelName
         self.hasAutoSelectedFastLocalModel = hasAutoSelectedFastLocalModel
+        self.f13DictationEnabled = f13DictationEnabled
+        self.showRecordingOverlay = showRecordingOverlay
+        self.meetingMode = meetingMode
+        self.meetingDetectionEnabled = meetingDetectionEnabled
+        self.secondBrainExportEnabled = secondBrainExportEnabled
+        self.secondBrainFolderPath = secondBrainFolderPath
+        self.playRecordingSound = playRecordingSound
     }
 
     enum CodingKeys: String, CodingKey {
@@ -143,6 +164,13 @@ struct AppSettings: Codable {
         case secureLocalModeEnabled
         case selectedLocalTranscriptionModelName
         case hasAutoSelectedFastLocalModel
+        case f13DictationEnabled
+        case showRecordingOverlay
+        case meetingMode
+        case meetingDetectionEnabled
+        case secondBrainExportEnabled
+        case secondBrainFolderPath
+        case playRecordingSound
     }
 
     init(from decoder: Decoder) throws {
@@ -158,6 +186,34 @@ struct AppSettings: Codable {
             Bool.self,
             forKey: .hasAutoSelectedFastLocalModel
         ) ?? false
+        f13DictationEnabled = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .f13DictationEnabled
+        ) ?? false
+        showRecordingOverlay = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .showRecordingOverlay
+        ) ?? true
+        meetingMode = try container.decodeIfPresent(
+            MeetingMode.self,
+            forKey: .meetingMode
+        ) ?? .cloud
+        meetingDetectionEnabled = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .meetingDetectionEnabled
+        ) ?? true
+        secondBrainExportEnabled = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .secondBrainExportEnabled
+        ) ?? false
+        secondBrainFolderPath = try container.decodeIfPresent(
+            String.self,
+            forKey: .secondBrainFolderPath
+        ) ?? ""
+        playRecordingSound = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .playRecordingSound
+        ) ?? true
     }
 }
 
@@ -209,6 +265,7 @@ struct TextImprovementSettings: Codable {
         case formal
         case neutral
         case casual
+        case email
 
         var id: String { rawValue }
 
@@ -217,6 +274,7 @@ struct TextImprovementSettings: Codable {
             case .formal: return "Formell"
             case .neutral: return "Neutral"
             case .casual: return "Locker"
+            case .email: return "E-Mail"
             }
         }
     }

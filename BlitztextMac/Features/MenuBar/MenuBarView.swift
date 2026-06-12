@@ -41,6 +41,19 @@ struct MenuBarView: View {
                     Spacer()
 
                     Button {
+                        NotificationCenter.default.post(name: .showHistoryWindow, object: nil)
+                        NotificationCenter.default.post(name: .dismissPopover, object: nil)
+                    } label: {
+                        Image(systemName: "clock.arrow.circlepath")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(.tertiary)
+                            .frame(width: 28, height: 28)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(SubtleButtonStyle())
+                    .help("Verlauf anzeigen")
+
+                    Button {
                         appState.page = .settings
                     } label: {
                         ZStack(alignment: .topTrailing) {
@@ -114,8 +127,155 @@ struct MenuBarView: View {
             }
             .padding(.vertical, 2)
 
+            meetingPanel
+                .padding(.horizontal, 16)
+                .padding(.top, 4)
+                .padding(.bottom, 6)
+
             appFooter
         }
+    }
+
+    // MARK: - Meeting Panel
+
+    private var meetingPanel: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            switch appState.meetingWorkflow.phase {
+            case .idle:
+                meetingIdleContent
+            case .recording(let since):
+                meetingRecordingContent(since: since)
+            case .transcribing:
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .scaleEffect(0.5)
+                        .controlSize(.small)
+                    Text("Meeting wird transkribiert \u{2026}")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(.secondary)
+                }
+            case .done:
+                HStack(spacing: 8) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.green)
+                    Text("Meeting im Verlauf gespeichert.")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(.primary)
+                    Spacer(minLength: 4)
+                    Button("OK") {
+                        appState.meetingWorkflow.acknowledge()
+                    }
+                    .font(.system(size: 10.5, weight: .medium))
+                    .buttonStyle(SubtleButtonStyle())
+                }
+            case .error(let message):
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.orange)
+                        Text(message)
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Button("OK") {
+                        appState.meetingWorkflow.acknowledge()
+                    }
+                    .font(.system(size: 10.5, weight: .medium))
+                    .buttonStyle(SubtleButtonStyle())
+                }
+            }
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color.primary.opacity(0.035))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
+        )
+    }
+
+    private var meetingIdleContent: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Image(systemName: "person.2.wave.2.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.indigo)
+                    .frame(width: 22, height: 22)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Meeting")
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundStyle(.primary)
+                    Text("Systemaudio + Mikrofon aufnehmen.")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 4)
+            }
+
+            HStack(spacing: 8) {
+                Text("Modus")
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(.secondary)
+
+                Picker("", selection: Binding(
+                    get: { appState.appSettings.meetingMode },
+                    set: { appState.appSettings.meetingMode = $0 }
+                )) {
+                    Text("Cloud mit Sprechern").tag(MeetingMode.cloud)
+                    Text("Nur lokal").tag(MeetingMode.local)
+                }
+                .labelsHidden()
+                .frame(maxWidth: .infinity)
+                .controlSize(.small)
+            }
+
+            Button("Meeting starten") {
+                appState.startMeeting(mode: appState.appSettings.meetingMode)
+            }
+            .controlSize(.small)
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    private func meetingRecordingContent(since: Date) -> some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(Color.red)
+                .frame(width: 9, height: 9)
+
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                Text("Meeting \u{00B7} \(Self.meetingTimerText(since: since, now: context.date))")
+                    .font(.system(size: 11.5, weight: .medium))
+                    .monospacedDigit()
+                    .foregroundStyle(.primary)
+            }
+
+            Spacer(minLength: 4)
+
+            Button("Stopp") {
+                appState.stopMeeting()
+            }
+            .controlSize(.small)
+
+            Button("Abbrechen") {
+                appState.cancelMeeting()
+            }
+            .font(.system(size: 10.5, weight: .medium))
+            .buttonStyle(SubtleButtonStyle())
+            .foregroundStyle(.secondary)
+        }
+    }
+
+    static func meetingTimerText(since: Date, now: Date) -> String {
+        let seconds = max(0, Int(now.timeIntervalSince(since)))
+        return String(format: "%02d:%02d", seconds / 60, seconds % 60)
     }
 
     private var transcriptionModePanel: some View {

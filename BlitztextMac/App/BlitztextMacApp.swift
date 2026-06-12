@@ -15,7 +15,10 @@ struct BlitztextMacApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
+    private var historyWindow: NSWindow?
     private let menuBarStatusController = MenuBarStatusController()
+    private let meetingPromptPanel = MeetingPromptPanelController()
+    private var recordingOverlayController: RecordingOverlayController?
     let appState = AppState()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -39,16 +42,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         appState.hotkeyService.onHotkeyEvent = { [weak self] event in
             self?.handleHotkeyEvent(event)
         }
+        recordingOverlayController = RecordingOverlayController(appState: appState)
         appState.onMenuBarStatusChange = { [weak self] status in
             self?.menuBarStatusController.update(to: status)
+            self?.recordingOverlayController?.update(for: status)
+            // Kein Frage-Banner über der Aufnahme-Kapsel, wenn ein Diktat startet.
+            if case .recording = status {
+                self?.meetingPromptPanel.hide()
+            }
+        }
+        // Meetings laufen am MenuBarStatus vorbei: eigener Anstoß für das Overlay.
+        appState.onMeetingStateChange = { [weak self] phase in
+            guard let self else { return }
+            self.recordingOverlayController?.update(for: self.appState.menuBarStatus)
+            // Meeting-Aufnahme läuft (egal wie gestartet): Banner weg.
+            if case .recording = phase {
+                self.meetingPromptPanel.hide()
+            }
         }
         appState.hotkeyService.start()
+
+        // Meeting-App erkannt → schwebendes Frage-Banner unten am Bildschirm.
+        // „Aufzeichnen" startet das Meeting im eingestellten Modus.
+        appState.onMeetingAppPrompt = { [weak self] appName in
+            guard let self else { return }
+            let modeLabel = self.appState.appSettings.meetingMode == .cloud
+                ? "Aufnahme: Cloud mit Sprechern"
+                : "Aufnahme: Nur lokal"
+            self.meetingPromptPanel.show(
+                appName: appName,
+                modeLabel: modeLabel,
+                onRecord: { [weak self] in
+                    guard let self else { return }
+                    self.appState.startMeeting(mode: self.appState.appSettings.meetingMode)
+                },
+                onDismiss: {}
+            )
+        }
 
         // Listen for popover dismiss requests (from auto-paste)
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleDismissPopover),
             name: .dismissPopover,
+            object: nil
+        )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleShowHistoryWindow),
+            name: .showHistoryWindow,
             object: nil
         )
 
@@ -60,6 +103,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     @objc private func handleDismissPopover() {
         appState.isPopoverShown = false
         popover.performClose(nil)
+    }
+
+    @objc private func handleShowHistoryWindow() {
+        showHistoryWindow()
+    }
+
+    private func showHistoryWindow() {
+        if historyWindow == nil {
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 480, height: 560),
+                styleMask: [.titled, .closable, .resizable, .miniaturizable],
+                backing: .buffered,
+                defer: false
+            )
+            window.title = "Verlauf"
+            window.contentViewController = NSHostingController(rootView: HistoryWindowView(appState: appState))
+            window.isReleasedWhenClosed = false
+            window.center()
+            historyWindow = window
+        }
+        historyWindow?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     private func handleHotkeyEvent(_ event: HotkeyEvent) {

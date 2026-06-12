@@ -41,11 +41,12 @@ final class TranscriptionWorkflow: Workflow {
     }
 
     func start() {
-        phase = .running("Aufnahme läuft ...")
         recorder.startRecording()
 
         if let error = recorder.errorMessage {
             phase = .error(error)
+        } else {
+            phase = .running("Aufnahme läuft ...")
         }
     }
 
@@ -89,10 +90,6 @@ final class TranscriptionWorkflow: Workflow {
         let stopTime = Date()
 
         transcriptionTask = Task(priority: .userInitiated) {
-            defer {
-                try? FileManager.default.removeItem(at: url)
-            }
-
             let requestStart = Date()
             do {
                 let text: String
@@ -118,6 +115,7 @@ final class TranscriptionWorkflow: Workflow {
                     transcriptionLogger.info(
                         "Transcription rejected short artifact after \(elapsedMilliseconds(since: stopTime)) ms"
                     )
+                    try? FileManager.default.removeItem(at: url)
                     phase = .error("Keine Aufnahme erkannt.")
                     return
                 }
@@ -125,14 +123,27 @@ final class TranscriptionWorkflow: Workflow {
                 transcriptionLogger.info(
                     "Transcription ready in \(elapsedMilliseconds(since: stopTime, until: responseReceivedAt)) ms (request \(elapsedMilliseconds(since: requestStart, until: responseReceivedAt)) ms)"
                 )
+                try? FileManager.default.removeItem(at: url)
                 phase = .done(cleaned)
                 onOutput?(cleaned)
+            } catch is CancellationError {
+                // Bewusster Abbruch durch den Nutzer: Aufnahme verwerfen, nichts retten.
+                try? FileManager.default.removeItem(at: url)
+                phase = .idle
             } catch {
                 transcriptionLogger.error(
                     "Transcription failed after \(elapsedMilliseconds(since: stopTime)) ms: \(error.localizedDescription, privacy: .private)"
                 )
-                phase = .error(error.localizedDescription)
+                // Aufnahme NICHT löschen – bei Fehlern (z. B. Timeout) wird sie gesichert,
+                // damit ein langes Diktat nicht verloren ist.
+                if let rescuedURL = RecordingRescueService.rescue(recordingAt: url) {
+                    transcriptionLogger.info("Recording rescued to \(rescuedURL.lastPathComponent, privacy: .public)")
+                    phase = .error("\(error.localizedDescription) – Aufnahme gesichert unter: \(rescuedURL.path)")
+                } else {
+                    phase = .error(error.localizedDescription)
+                }
             }
         }
     }
+
 }

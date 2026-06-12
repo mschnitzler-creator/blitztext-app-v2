@@ -21,14 +21,27 @@ final class AppState {
     var menuBarStatus: MenuBarStatus = .idle {
         didSet {
             guard oldValue != menuBarStatus else { return }
+            if case .recording = menuBarStatus {
+                playRecordingStartSoundIfEnabled()
+            }
             onMenuBarStatusChange?(menuBarStatus)
         }
     }
+    /// Wird gerufen, wenn eine Meeting-App startet und Blitztext nachfragen soll.
+    /// Der AppDelegate hängt hier die macOS-Mitteilung dran.
+    var onMeetingAppPrompt: ((String) -> Void)?
     var accessibilityPermissionGranted = false
     var localModelDownloadProgress: Double?
     var localModelDownloadStatusText: String?
     var localModelDownloadErrorText: String?
     var onMenuBarStatusChange: ((MenuBarStatus) -> Void)?
+    var onMeetingStateChange: ((MeetingPhase) -> Void)?
+
+    /// Läuft unabhängig vom activeWorkflow der Diktate:
+    /// Diktieren während einer Meeting-Aufnahme muss funktionieren.
+    let meetingWorkflow = MeetingWorkflow()
+    /// Beobachtet App-Starts von Zoom, Teams und Webex (→ Nachfrage per Mitteilung).
+    let meetingAppDetector = MeetingAppDetector()
     private var activeLaunchSource: WorkflowLaunchSource = .manual
     private var activePasteTarget: PasteTarget?
     private var lastPopoverPasteTarget: PasteTarget?
@@ -40,6 +53,8 @@ final class AppState {
         didSet {
             saveSettings()
             prewarmLocalTranscriptionIfNeeded()
+            hotkeyService.f13DictationEnabled = appSettings.f13DictationEnabled
+            syncMeetingDetection()
         }
     }
     var transcriptionSettings: TranscriptionSettings {
@@ -79,6 +94,65 @@ final class AppState {
         refreshAccessibilityPermission()
         autoSelectFastLocalModelIfNeeded()
         prewarmLocalTranscriptionIfNeeded()
+        hotkeyService.f13DictationEnabled = appSettings.f13DictationEnabled
+        meetingWorkflow.onPhaseChange = { [weak self] phase in
+            if case .recording = phase {
+                self?.playRecordingStartSoundIfEnabled()
+            }
+            self?.onMeetingStateChange?(phase)
+        }
+        // Export-Konfiguration zum Speicherzeitpunkt lesen, nicht beim Meeting-Start:
+        // Einstellungen können sich während eines langen Meetings ändern.
+        meetingWorkflow.exportConfiguration = { [weak self] in
+            guard let self else { return (false, "") }
+            return (
+                self.appSettings.secondBrainExportEnabled,
+                self.appSettings.secondBrainFolderPath
+            )
+        }
+        // Meeting-App-Erkennung: keine Nachfrage während laufender Aufnahme,
+        // Callback nur wenn der Toggle aktiv ist. Notification-Code hängt
+        // ausschließlich am AppDelegate (onMeetingAppPrompt), nie hier im Init.
+        meetingAppDetector.isMeetingActive = { [weak self] in
+            self?.meetingWorkflow.isRecording ?? false
+        }
+        // Eigene Audio-Aufnahmen (Meeting oder Diktat) belegen das Mikrofon selbst:
+        // sie dürfen die Mikrofon-basierte Meeting-Erkennung nicht auslösen.
+        meetingAppDetector.isOwnAudioActive = { [weak self] in
+            guard let self else { return false }
+            return self.meetingWorkflow.isRecording || (self.activeWorkflow?.isRecording ?? false)
+        }
+        meetingAppDetector.onMeetingAppDetected = { [weak self] appName in
+            guard let self, self.appSettings.meetingDetectionEnabled else { return }
+            self.onMeetingAppPrompt?(appName)
+        }
+        syncMeetingDetection()
+    }
+
+    private func syncMeetingDetection() {
+        if appSettings.meetingDetectionEnabled {
+            meetingAppDetector.start()
+        } else {
+            meetingAppDetector.stop()
+        }
+    }
+
+    // MARK: - Meeting (dünne Hülle um MeetingWorkflow)
+
+    func startMeeting(mode: MeetingMode) {
+        meetingWorkflow.start(
+            mode: mode,
+            language: transcriptionSettings.language,
+            localModelName: resolvedLocalModelName
+        )
+    }
+
+    func stopMeeting() {
+        meetingWorkflow.stop()
+    }
+
+    func cancelMeeting() {
+        meetingWorkflow.cancel()
     }
 
     // MARK: - Custom Display Names
@@ -293,6 +367,12 @@ final class AppState {
         writeSensitiveTextToPasteboard(text)
     }
 
+    /// Kurzer Ton beim Aufnahmestart (Diktat und Meeting), abschaltbar.
+    private func playRecordingStartSoundIfEnabled() {
+        guard appSettings.playRecordingSound else { return }
+        NSSound(named: "Pop")?.play()
+    }
+
     // MARK: - Auto-Paste
 
     /// Copies the text, restores focus when needed, then simulates Cmd+V.
@@ -448,6 +528,9 @@ final class AppState {
     }
 
     private func handleWorkflowOutput(_ text: String) {
+        if let type = activeWorkflow?.type {
+            TranscriptStore.shared.add(text: text, workflowType: type)
+        }
         pasteAtCursor(text, target: activePasteTarget)
         if activeLaunchSource == .hotkeyBackground {
             page = .main
@@ -609,6 +692,7 @@ private struct SettingsContainer: Codable {
 
 extension Notification.Name {
     static let dismissPopover = Notification.Name("dismissPopover")
+    static let showHistoryWindow = Notification.Name("showHistoryWindow")
 }
 
 private struct PasteTarget {

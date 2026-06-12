@@ -39,6 +39,7 @@ final class AudioRecorder: NSObject, AVAudioRecorderDelegate {
             audioRecorder = try AVAudioRecorder(url: fileURL, settings: settings)
             audioRecorder?.delegate = self
             audioRecorder?.isMeteringEnabled = true
+            audioRecorder?.prepareToRecord()
             audioRecorder?.record()
             isRecording = true
             startMetering()

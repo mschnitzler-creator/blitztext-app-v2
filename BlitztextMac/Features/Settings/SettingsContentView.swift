@@ -66,6 +66,7 @@ struct AccessSettingsView: View {
 
     @State private var launchAtLoginService = LaunchAtLoginService()
     @State private var currentInstallLocation = BlitztextInstallLocationService.currentInstallLocation
+    @AppStorage(ServerConfig.defaultsKey) private var serverBaseURL = ""
     @State private var openAIAPIKey = ""
     @State private var editingAPIKey = false
     @State private var saved = false
@@ -155,6 +156,20 @@ struct AccessSettingsView: View {
                 }
 
                 Text("Dein Key bleibt lokal in dieser App. Audio und Text werden direkt an die OpenAI API gesendet.")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                SectionLabel(text: "Server (optional)")
+
+                TextField("https://api.openai.com", text: $serverBaseURL)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 11.5))
+                    .autocorrectionDisabled()
+
+                Text("Leer lassen für die direkte OpenAI-Anbindung. Wer den optionalen Blitztext-Server betreibt (siehe server/README.md im Repo), trägt hier dessen URL ein: Der API-Key bleibt dann auf dem Server (in der App genügt ein App-Passwort) und die Meeting-Transkription mit Sprechererkennung wird verfügbar.")
                     .font(.system(size: 10.5))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -624,6 +639,93 @@ struct CustomizeSettingsView: View {
                     }
                     .pickerStyle(.segmented)
                 }
+
+                // F13 dictation trigger + recording overlay
+                VStack(alignment: .leading, spacing: 10) {
+                    Toggle(isOn: $appState.appSettings.f13DictationEnabled) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("F13 als Diktat-Taste")
+                                .font(.system(size: 12))
+                            Text("Zus\u{00E4}tzlich zu fn + Shift. Praktisch f\u{00FC}r gro\u{00DF}e Tastaturen.")
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+
+                    Toggle(isOn: $appState.appSettings.showRecordingOverlay) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Aufnahme-Anzeige am unteren Bildschirmrand")
+                                .font(.system(size: 12))
+                            Text("Kleines Statusfenster w\u{00E4}hrend Aufnahme und Verarbeitung.")
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+
+                    Toggle(isOn: $appState.appSettings.playRecordingSound) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Ton bei Aufnahmestart")
+                                .font(.system(size: 12))
+                            Text("Kurzer Hinweiston, sobald Diktat oder Meeting-Aufnahme l\u{00E4}uft.")
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                }
+            }
+
+            // MARK: Meeting
+            VStack(alignment: .leading, spacing: 10) {
+                SectionLabel(text: "Meeting")
+
+                Toggle(isOn: $appState.appSettings.meetingDetectionEnabled) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Meeting-Apps erkennen (Zoom, Teams, Webex)")
+                            .font(.system(size: 12))
+                        Text("Fragt mit einem kleinen Banner am Bildschirmrand, ob die Aufnahme starten soll.")
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .toggleStyle(.switch)
+                .controlSize(.small)
+
+                Toggle(isOn: $appState.appSettings.secondBrainExportEnabled) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Transkripte ins Second Brain exportieren")
+                            .font(.system(size: 12))
+                        Text("Nach jedem Meeting eine Markdown-Datei im gew\u{00E4}hlten Ordner.")
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .toggleStyle(.switch)
+                .controlSize(.small)
+
+                if appState.appSettings.secondBrainExportEnabled {
+                    HStack(spacing: 8) {
+                        Text(appState.appSettings.secondBrainFolderPath.isEmpty
+                            ? "Kein Ordner gew\u{00E4}hlt."
+                            : appState.appSettings.secondBrainFolderPath)
+                            .font(.system(size: 10.5, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+
+                        Spacer()
+
+                        Button("Ordner w\u{00E4}hlen") {
+                            chooseSecondBrainFolder()
+                        }
+                        .buttonStyle(SubtleButtonStyle())
+                    }
+                }
             }
 
             // MARK: Blitztext+
@@ -791,6 +893,25 @@ struct CustomizeSettingsView: View {
             appState.textImprovementSettings.customTerms.append(trimmed)
         }
         newTerm = ""
+    }
+
+    private func chooseSecondBrainFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Ausw\u{00E4}hlen"
+        panel.message = "Ordner f\u{00FC}r Meeting-Transkripte w\u{00E4}hlen"
+        if !appState.appSettings.secondBrainFolderPath.isEmpty {
+            panel.directoryURL = URL(
+                fileURLWithPath: appState.appSettings.secondBrainFolderPath,
+                isDirectory: true
+            )
+        }
+        if panel.runModal() == .OK, let url = panel.url {
+            appState.appSettings.secondBrainFolderPath = url.path
+        }
     }
 }
 
