@@ -39,7 +39,7 @@ for (const [key, value] of Object.entries(process.env)) {
   if (m && value) USER_PASSWORDS[m[1].toLowerCase()] = value;
 }
 const OPENAI_BASE = 'https://api.openai.com';
-const MAX_BODY = 64 * 1024 * 1024; // 64 MB (Meetings bis ~2h; OpenAI-Diktate bleiben klein)
+const MAX_BODY = 200 * 1024 * 1024; // 200 MB (Meeting-m4a ~58 MB/h bei 128 kbps -> ~3,4 h). nginx client_max_body_size identisch halten.
 
 const FAL_SUBMIT_URL = 'https://queue.fal.run/fal-ai/elevenlabs/speech-to-text/scribe-v2';
 const FAL_POLL_INTERVAL_MS = 3000;

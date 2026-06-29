@@ -240,30 +240,97 @@ final class MeetingRecorder: NSObject, SCStreamDelegate {
             throw MeetingRecorderError.mixdownFailed("Keine verwertbare Audiospur vorhanden.")
         }
 
-        guard let exportSession = AVAssetExportSession(
-            asset: composition,
-            presetName: AVAssetExportPresetAppleM4A
-        ) else {
-            throw MeetingRecorderError.mixdownFailed("Export-Session konnte nicht erstellt werden.")
-        }
-        exportSession.outputURL = outputURL
-        exportSession.outputFileType = .m4a
+        // Sprachoptimierter Export statt AVAssetExportPresetAppleM4A (~128 kbps):
+        // mono, 16 kHz, AAC 32 kbps. Das reicht für die Transkription (Scribe/Whisper
+        // rechnen ohnehin auf 16 kHz herunter) und hält die Datei klein (~14 MB/h statt
+        // ~58 MB/h), damit lange Meetings nicht am Upload-/Body-Limit scheitern.
+        try await Self.exportSpeechM4A(composition: composition, to: outputURL)
 
+        return maxDuration.seconds
+    }
+
+    /// Liest die gemischte Komposition als PCM und schreibt sie als sprachoptimierte
+    /// AAC-m4a (mono, 16 kHz, 32 kbps) über AVAssetReader/AVAssetWriter. Ein Export-Preset
+    /// lässt die Bitrate nicht einstellen, darum der manuelle Reader-zu-Writer-Pfad.
+    private static func exportSpeechM4A(composition: AVComposition, to outputURL: URL) async throws {
+        try? FileManager.default.removeItem(at: outputURL)
+
+        let audioTracks = composition.tracks(withMediaType: .audio)
+        guard !audioTracks.isEmpty else {
+            throw MeetingRecorderError.mixdownFailed("Keine verwertbare Audiospur vorhanden.")
+        }
+
+        let reader = try AVAssetReader(asset: composition)
+        let pcmSettings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVSampleRateKey: 16_000,
+            AVNumberOfChannelsKey: 1,
+            AVLinearPCMBitDepthKey: 16,
+            AVLinearPCMIsFloatKey: false,
+            AVLinearPCMIsBigEndianKey: false,
+            AVLinearPCMIsNonInterleaved: false,
+        ]
+        // Audio-Mix-Output summiert die parallelen Spuren (System + Mikrofon) zu einer.
+        let mixOutput = AVAssetReaderAudioMixOutput(audioTracks: audioTracks, audioSettings: pcmSettings)
+        mixOutput.alwaysCopiesSampleData = false
+        guard reader.canAdd(mixOutput) else {
+            throw MeetingRecorderError.mixdownFailed("Audio-Mix-Output konnte nicht erstellt werden.")
+        }
+        reader.add(mixOutput)
+
+        let writer = try AVAssetWriter(outputURL: outputURL, fileType: .m4a)
+        let aacSettings: [String: Any] = [
+            AVFormatIDKey: kAudioFormatMPEG4AAC,
+            AVSampleRateKey: 16_000,
+            AVNumberOfChannelsKey: 1,
+            AVEncoderBitRateKey: 32_000,
+        ]
+        let writerInput = AVAssetWriterInput(mediaType: .audio, outputSettings: aacSettings)
+        writerInput.expectsMediaDataInRealTime = false
+        guard writer.canAdd(writerInput) else {
+            throw MeetingRecorderError.mixdownFailed("Audio-Writer-Input konnte nicht erstellt werden.")
+        }
+        writer.add(writerInput)
+
+        guard reader.startReading() else {
+            throw MeetingRecorderError.mixdownFailed(reader.error?.localizedDescription ?? "Lesen fehlgeschlagen.")
+        }
+        guard writer.startWriting() else {
+            throw MeetingRecorderError.mixdownFailed(writer.error?.localizedDescription ?? "Schreiben fehlgeschlagen.")
+        }
+        writer.startSession(atSourceTime: .zero)
+
+        let queue = DispatchQueue(label: "app.blitztext.mac.meeting-export")
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            exportSession.exportAsynchronously {
-                switch exportSession.status {
-                case .completed:
-                    continuation.resume()
-                case .failed, .cancelled:
-                    let message = exportSession.error?.localizedDescription ?? "Export abgebrochen."
-                    continuation.resume(throwing: MeetingRecorderError.mixdownFailed(message))
-                default:
-                    continuation.resume(throwing: MeetingRecorderError.mixdownFailed("Unerwarteter Export-Status."))
+            writerInput.requestMediaDataWhenReady(on: queue) {
+                while writerInput.isReadyForMoreMediaData {
+                    guard let buffer = mixOutput.copyNextSampleBuffer() else {
+                        // Quelle erschöpft: Reader-Status prüfen, dann sauber abschließen.
+                        if reader.status == .failed {
+                            continuation.resume(throwing: MeetingRecorderError.mixdownFailed(
+                                reader.error?.localizedDescription ?? "Lesen fehlgeschlagen."))
+                            return
+                        }
+                        writerInput.markAsFinished()
+                        writer.finishWriting {
+                            if writer.status == .completed {
+                                continuation.resume()
+                            } else {
+                                continuation.resume(throwing: MeetingRecorderError.mixdownFailed(
+                                    writer.error?.localizedDescription ?? "Export abgebrochen."))
+                            }
+                        }
+                        return
+                    }
+                    if !writerInput.append(buffer) {
+                        reader.cancelReading()
+                        continuation.resume(throwing: MeetingRecorderError.mixdownFailed(
+                            writer.error?.localizedDescription ?? "Audio-Append fehlgeschlagen."))
+                        return
+                    }
                 }
             }
         }
-
-        return maxDuration.seconds
     }
 
     // MARK: - SCStreamDelegate
